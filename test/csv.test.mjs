@@ -87,3 +87,84 @@ test('mapSalesRecords derives units from revenue and price when units are absent
   const { rows } = mapSalesRecords(records, mapping);
   assert.equal(rows[0].units, 20);
 });
+
+/* ------------- product attributes carried on sales rows ------------- */
+
+import { mapProductRecords, PRODUCT_FIELDS } from '../api/src/csv.js';
+
+// The header set from a real retail weekly-sales export: sales history and
+// product master data in one file, with several near-miss column names.
+const RETAIL_HEADERS = [
+  'week_start', 'week_end', 'year', 'week_number', 'sku', 'product_name', 'category',
+  'product_line', 'list_price', 'unit_cost', 'avg_selling_price', 'promotion_flag',
+  'discount_pct', 'starting_inventory_units', 'received_units', 'available_units',
+  'forecastable_demand_units', 'units_sold', 'lost_sales_units', 'ending_inventory_units',
+  'stockout_days', 'sell_through_pct', 'sales_revenue', 'cogs', 'gross_margin',
+  'gross_margin_pct', 'store_traffic', 'conversion_rate_pct',
+];
+
+test('guessMapping handles a wide retail export without cross-wiring columns', () => {
+  const m = guessMapping(RETAIL_HEADERS);
+  assert.equal(m.sale_date, 'week_start');
+  assert.equal(m.sku, 'sku');
+  assert.equal(m.units, 'units_sold', 'must not grab starting/available/received units');
+  assert.equal(m.unit_cost, 'unit_cost', 'cost is what makes the spend forecast non-zero');
+  assert.equal(m.unit_price, 'avg_selling_price', 'actual selling price beats list price');
+  assert.equal(m.revenue, 'sales_revenue', 'must not match lost_sales_units on the word "sales"');
+  assert.equal(m.product_name, 'product_name');
+  assert.equal(m.category, 'category');
+  assert.equal(m.on_hand, 'ending_inventory_units');
+});
+
+test('guessMapping never assigns one header to two fields', () => {
+  const m = guessMapping(RETAIL_HEADERS);
+  const used = Object.values(m);
+  assert.equal(used.length, new Set(used).size, `duplicate header assignment: ${JSON.stringify(m)}`);
+});
+
+test('guessMapping still handles a minimal three-column file', () => {
+  const m = guessMapping(['date', 'sku', 'qty']);
+  assert.deepEqual({ sale_date: m.sale_date, sku: m.sku, units: m.units },
+    { sale_date: 'date', sku: 'sku', units: 'qty' });
+  assert.equal(m.unit_cost, undefined);
+});
+
+test('mapProductRecords takes attributes from each SKUs most recent row', () => {
+  const csv = [
+    'week_start,sku,units_sold,unit_cost,product_name,category,ending_inventory_units',
+    '2026-03-02,A-1,10,40,Old Name,Running,100',
+    '2026-08-24,A-1,12,49,AeroStride Runner,Running,26',
+    '2026-08-24,B-2,5,38,FlexFit Trainer,Training,20',
+  ].join('\n');
+  const { headers, records } = parseCSVObjects(csv);
+  const attrs = mapProductRecords(records, guessMapping(headers));
+
+  assert.equal(attrs.size, 2);
+  const a = attrs.get('A-1');
+  assert.equal(a.unit_cost, 49, 'latest cost, not the earliest');
+  assert.equal(a.name, 'AeroStride Runner');
+  assert.equal(a.on_hand, 26, 'stock must come from the most recent week');
+  assert.equal(a.category, 'Running');
+  assert.equal(attrs.get('B-2').unit_cost, 38);
+});
+
+test('mapProductRecords returns nothing when no product columns are mapped', () => {
+  const { headers, records } = parseCSVObjects('date,sku,qty\n2026-08-03,A-1,5');
+  assert.equal(mapProductRecords(records, guessMapping(headers)).size, 0);
+});
+
+test('mapProductRecords ignores blank cells rather than erasing known values', () => {
+  const csv = [
+    'week_start,sku,units_sold,unit_cost,product_name',
+    '2026-03-02,A-1,10,40,Real Name',
+    '2026-08-24,A-1,12,45,',
+  ].join('\n');
+  const { headers, records } = parseCSVObjects(csv);
+  const a = mapProductRecords(records, guessMapping(headers)).get('A-1');
+  assert.equal(a.unit_cost, 45);
+  assert.equal(a.name, 'Real Name', 'a blank later cell must not wipe an earlier value');
+});
+
+test('PRODUCT_FIELDS lists exactly the catalog-side fields', () => {
+  assert.deepEqual(PRODUCT_FIELDS, ['unit_cost', 'product_name', 'category', 'on_hand', 'lead_time_days']);
+});

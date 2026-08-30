@@ -276,6 +276,23 @@ commas and newlines, `$1,234.50`, `(45)` for negatives, `08/30/2026`,
 mapping, the parsed sample, the date range, unknown SKUs and per-line errors
 before anything is written.
 
+Matching scores whole words rather than substrings, and each column is claimed
+by at most one field — so `lost_sales_units` is not mistaken for revenue, and
+`starting_inventory_units` is not mistaken for units sold.
+
+**Product details come in too.** Most sales exports repeat the item's cost,
+name, category and stock level on every row, so the importer maps those as well
+and applies them to the catalog, taking each value from the SKU's most recent
+row. Unit cost is the one that matters: without it the unit forecast still works
+but every dollar figure is zero. Existing products have blank or zero fields
+filled in only — a cost you typed by hand is never overwritten unless you tick
+**Overwrite existing cost and stock**.
+
+If your export separates true demand from units sold (a `forecastable_demand_units`
+or similar column alongside `units_sold`), map that as the units column. Sales
+are censored by stockouts; demand is not, and forecasting on censored sales
+quietly under-orders the items that sold out.
+
 **One row per SKU per day.** Re-importing a file overwrites those days rather
 than double-counting, so imports are idempotent and a manual correction beats a
 previously imported figure. Multiple lines for the same SKU and day within one

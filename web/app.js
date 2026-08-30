@@ -316,11 +316,7 @@ async function doPreview() {
   if (!csv) { fail(new Error('Choose a file or paste some rows first.')); return; }
   if (!state.csvText) { state.csvText = pasted; state.csvName = 'pasted'; }
 
-  const mapping = {};
-  if ($('#map-date').value) mapping.sale_date = $('#map-date').value;
-  if ($('#map-sku').value) mapping.sku = $('#map-sku').value;
-  if ($('#map-units').value) mapping.units = $('#map-units').value;
-  if ($('#map-price').value) mapping.unit_price = $('#map-price').value;
+  const mapping = readMapping();
 
   try {
     const p = await api.previewImport({ csv: state.csvText, filename: state.csvName, mapping });
@@ -329,14 +325,26 @@ async function doPreview() {
   } catch (e) { fail(e); }
 }
 
+/** The mapping selects, keyed by canonical field name. */
+const MAP_FIELDS = {
+  sale_date: '#map-date', sku: '#map-sku', units: '#map-units', unit_price: '#map-price',
+  unit_cost: '#map-cost', product_name: '#map-name', category: '#map-category', on_hand: '#map-onhand',
+};
+
+function readMapping() {
+  const m = {};
+  for (const [field, sel] of Object.entries(MAP_FIELDS)) {
+    const v = $(sel)?.value;
+    if (v) m[field] = v;
+  }
+  return m;
+}
+
 function renderPreview(p) {
   $('#mapping-panel').hidden = false;
   const opts = (sel) => '<option value=""></option>' + p.headers.map((h) =>
     `<option value="${esc(h)}"${p.mapping[sel] === h ? ' selected' : ''}>${esc(h)}</option>`).join('');
-  $('#map-date').innerHTML = opts('sale_date');
-  $('#map-sku').innerHTML = opts('sku');
-  $('#map-units').innerHTML = opts('units');
-  $('#map-price').innerHTML = opts('unit_price');
+  for (const [field, sel] of Object.entries(MAP_FIELDS)) $(sel).innerHTML = opts(field);
 
   $('#preview-summary').textContent =
     `${p.total_rows} rows read · ${p.valid_rows} importable` +
@@ -344,6 +352,12 @@ function renderPreview(p) {
 
   const warnings = [];
   if (p.missing_required.length) warnings.push(`Pick a column for: ${p.missing_required.join(', ')}, then re-analyze.`);
+  if (!p.mapping.unit_cost) {
+    warnings.push('No unit cost column detected. Units will forecast, but every dollar figure will be zero until you either map a cost column above or set costs on the Products tab.');
+  } else if (p.product_attribute_count) {
+    const s = p.product_attributes_sample[0];
+    warnings.push(`Product details will be applied to ${p.product_attribute_count} SKU(s) — e.g. ${s.sku}: cost ${s.unit_cost ?? '—'}${s.on_hand != null ? `, on hand ${s.on_hand}` : ''}${s.name ? `, "${s.name}"` : ''}.`);
+  }
   if (p.error_count) warnings.push(`${p.error_count} row(s) could not be read — e.g. line ${p.errors[0].line}: ${p.errors[0].reason}.`);
   if (p.unknown_skus.length) warnings.push(`${p.unknown_skus.length} SKU(s) not in the catalog: ${p.unknown_skus.slice(0, 8).join(', ')}${p.unknown_skus.length > 8 ? '…' : ''}. Tick the box below to create them, or add them on the Products tab first.`);
   const box = $('#preview-warnings');
@@ -362,24 +376,22 @@ function renderPreview(p) {
 }
 
 $('#btn-commit').addEventListener('click', async () => {
-  const mapping = {
-    sale_date: $('#map-date').value, sku: $('#map-sku').value,
-    units: $('#map-units').value,
-  };
-  if ($('#map-price').value) mapping.unit_price = $('#map-price').value;
+  const mapping = readMapping();
 
   $('#btn-commit').disabled = true;
   try {
     const r = await api.commitImport({
       csv: state.csvText, filename: state.csvName, mapping,
       create_missing_products: $('#create-missing').checked,
+      update_products: $('#overwrite-products').checked ? 'overwrite' : true,
     });
     $('#import-result').hidden = false;
     $('#import-result-body').innerHTML = `
       <div class="msg ok">Imported ${r.imported} row(s).</div>
       <ul style="color:var(--ink-2);padding-left:18px;margin:0">
         ${r.merged_duplicate_lines ? `<li>${r.merged_duplicate_lines} duplicate SKU/date line(s) were summed.</li>` : ''}
-        ${r.created_products.length ? `<li>Created ${r.created_products.length} product(s): ${esc(r.created_products.slice(0, 10).join(', '))}. Set their unit cost and lead time on the Products tab — spend figures are zero until you do.</li>` : ''}
+        ${r.created_products.length ? `<li>Created ${r.created_products.length} product(s): ${esc(r.created_products.slice(0, 10).join(', '))}${r.product_fields_applied?.includes('unit_cost') ? ', with unit cost taken from the file' : ' — set their unit cost and lead time on the Products tab, spend stays zero until you do'}.</li>` : ''}
+        ${r.products_updated?.length ? `<li>Updated ${r.products_updated.length} existing product(s) from ${esc((r.product_fields_applied || []).join(', '))}.</li>` : ''}
         ${r.skipped_unknown_sku ? `<li>${r.skipped_unknown_sku} row(s) skipped for unknown SKUs.</li>` : ''}
         ${r.error_count ? `<li>${r.error_count} unreadable row(s) ignored.</li>` : ''}
         <li class="mono">batch ${esc(r.batch_id)}</li>
