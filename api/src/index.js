@@ -52,7 +52,7 @@ export default {
     if (url.pathname === '/' || url.pathname === '/api') {
       return withCors(json({
         name: 'inventory-forecast API',
-        docs: 'https://github.com/YOUR_USERNAME/inventory-forecast#api-reference',
+        docs: 'https://github.com/reciddice-ship-it/inventory-forecast#api-reference',
         endpoints: router.routes.map((r) => `${r.method} ${r.regex.source}`),
       }), cors);
     }

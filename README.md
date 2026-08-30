@@ -45,7 +45,7 @@ gh repo create inventory-forecast --private --source=. --push
 No `gh` CLI? Create an empty repo in the GitHub UI, then:
 
 ```bash
-git remote add origin https://github.com/YOUR_USERNAME/inventory-forecast.git
+git remote add origin https://github.com/reciddice-ship-it/inventory-forecast.git
 git branch -M main
 git push -u origin main
 ```
@@ -101,7 +101,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 
 In your repo: **Settings → Pages → Build and deployment → Source = GitHub
 Actions**. Push to `main` and the included workflow publishes `web/` to
-`https://YOUR_USERNAME.github.io/inventory-forecast/`.
+`https://reciddice-ship-it.github.io/inventory-forecast/`.
 
 ### 6. Lock the API to your Pages origin
 
@@ -109,7 +109,7 @@ Edit `api/wrangler.toml`:
 
 ```toml
 [vars]
-ALLOWED_ORIGINS = "https://YOUR_USERNAME.github.io"
+ALLOWED_ORIGINS = "https://reciddice-ship-it.github.io"
 ```
 
 Then `npm run deploy` again. Leaving it as `*` means any website can *attempt*
