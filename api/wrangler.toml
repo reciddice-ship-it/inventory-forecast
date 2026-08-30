@@ -1,0 +1,19 @@
+name = "inventory-forecast-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Paste the database_id printed by:  npx wrangler d1 create inventory-forecast
+[[d1_databases]]
+binding = "DB"
+database_name = "inventory-forecast"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# Comma-separated list of origins allowed to call this API.
+# Set this to your GitHub Pages URL once you know it, e.g.
+#   ALLOWED_ORIGINS = "https://YOUR_USERNAME.github.io"
+# "*" is fine while you're testing locally.
+ALLOWED_ORIGINS = "*"
+
+# API_TOKEN is a SECRET, not a var. Never put it in this file.
+# Set it with:  npx wrangler secret put API_TOKEN

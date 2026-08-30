@@ -1,0 +1,19 @@
+{
+  "name": "inventory-forecast-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker API for sales-driven inventory demand and spend forecasting",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create inventory-forecast",
+    "db:migrate": "wrangler d1 execute inventory-forecast --file=./schema.sql --remote",
+    "db:migrate:local": "wrangler d1 execute inventory-forecast --file=./schema.sql --local",
+    "secret": "wrangler secret put API_TOKEN",
+    "test": "node --test ../test/"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

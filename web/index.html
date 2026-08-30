@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventory Forecast</title>
+<meta name="description" content="Sales-driven inventory demand and purchase-spend forecasting.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='2' fill='%232a78d6'/><path d='M3 11h2.5V6H3zm3.75 0h2.5V3h-2.5zm3.75 0H13V8h-2.5z' fill='white'/></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>Inventory Forecast</h1>
+    <small id="conn-state">not connected</small>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button data-view="dashboard" aria-current="page">Forecast</button>
+    <button data-view="orders">Purchasing</button>
+    <button data-view="products">Products</button>
+    <button data-view="sales">Sales</button>
+    <button data-view="import">Import</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+</header>
+
+<main>
+  <div class="msg error" id="global-error" hidden></div>
+
+  <!-- ------------------------------ FORECAST ----------------------------- -->
+  <section id="view-dashboard">
+    <div class="view-head">
+      <div>
+        <h2>Demand &amp; spend forecast</h2>
+        <p>Projected purchase commitments needed to keep every active SKU in stock, based on the sales history you've loaded.</p>
+      </div>
+      <div class="spacer"></div>
+      <div style="min-width:150px">
+        <label for="horizon">Horizon</label>
+        <select id="horizon">
+          <option value="4">4 weeks</option>
+          <option value="8">8 weeks</option>
+          <option value="13" selected>13 weeks</option>
+          <option value="26">26 weeks</option>
+          <option value="52">52 weeks</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel">
+      <header>
+        <h3>Projected purchase spend by week</h3>
+        <div class="spacer"></div>
+        <button class="toggle-view" data-table-for="chart-weekly">Show as table</button>
+      </header>
+      <div id="chart-weekly"></div>
+      <div id="table-chart-weekly" class="table-wrap" hidden></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="panel">
+        <header>
+          <h3>Projected purchase spend by month</h3>
+          <div class="spacer"></div>
+          <button class="toggle-view" data-table-for="chart-monthly">Show as table</button>
+        </header>
+        <div id="chart-monthly"></div>
+        <div id="table-chart-monthly" class="table-wrap" hidden></div>
+      </div>
+      <div class="panel">
+        <header><h3>Projected units sold by week</h3></header>
+        <div id="chart-units"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header>
+        <h3>Per-SKU detail</h3>
+        <div class="spacer"></div>
+        <span class="panel-note" id="basis-note"></span>
+      </header>
+      <div class="table-wrap"><table id="table-items"></table></div>
+    </div>
+
+    <div class="panel">
+      <header>
+        <h3>History and forecast</h3>
+        <div class="spacer"></div>
+        <div style="min-width:220px"><label for="sku-picker">SKU</label><select id="sku-picker"></select></div>
+      </header>
+      <div class="legend">
+        <span><i></i> Actual units sold</span>
+        <span><i class="dashed"></i> Forecast units</span>
+      </div>
+      <div id="chart-sku"></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------ PURCHASING --------------------------- -->
+  <section id="view-orders" hidden>
+    <div class="view-head">
+      <div>
+        <h2>Suggested purchase orders</h2>
+        <p>Each line is an order the model would place in that week to hold the target service level, given lead time, case pack and minimum order quantity.</p>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn secondary" id="export-orders">Download CSV</button>
+    </div>
+    <div class="panel">
+      <div class="table-wrap"><table id="table-orders"></table></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------- PRODUCTS ---------------------------- -->
+  <section id="view-products" hidden>
+    <div class="view-head">
+      <div><h2>Products</h2><p>Unit cost and lead time drive the spend forecast. Both are worth getting right.</p></div>
+    </div>
+
+    <div class="panel">
+      <header><h3 id="product-form-title">Add a product</h3><div class="spacer"></div>
+        <button class="toggle-view" id="product-form-reset" hidden>Cancel edit</button></header>
+      <form id="product-form">
+        <input type="hidden" id="p-id">
+        <div class="field-row">
+          <div class="field"><label for="p-sku">SKU *</label><input id="p-sku" required autocomplete="off"></div>
+          <div class="field"><label for="p-name">Name *</label><input id="p-name" required autocomplete="off"></div>
+          <div class="field"><label for="p-category">Category</label><input id="p-category" autocomplete="off"></div>
+          <div class="field"><label for="p-supplier">Supplier</label><input id="p-supplier" autocomplete="off"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="p-unit_cost">Unit cost</label><input id="p-unit_cost" type="number" step="0.0001" min="0" value="0">
+            <div class="hint">What you pay per unit.</div></div>
+          <div class="field"><label for="p-unit_price">Sell price</label><input id="p-unit_price" type="number" step="0.01" min="0"></div>
+          <div class="field"><label for="p-lead_time_days">Lead time (days)</label><input id="p-lead_time_days" type="number" min="0" value="14"></div>
+          <div class="field"><label for="p-on_hand">On hand</label><input id="p-on_hand" type="number" step="1" value="0"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="p-on_order">On order</label><input id="p-on_order" type="number" step="1" value="0"></div>
+          <div class="field"><label for="p-case_pack">Case pack</label><input id="p-case_pack" type="number" min="1" value="1">
+            <div class="hint">Order in multiples of this.</div></div>
+          <div class="field"><label for="p-moq">Min order qty</label><input id="p-moq" type="number" min="0" value="0"></div>
+          <div class="field"><label for="p-active">Status</label><select id="p-active"><option value="1">Active</option><option value="0">Inactive</option></select></div>
+        </div>
+        <div class="btn-row"><button class="btn" type="submit">Save product</button><span class="panel-note" id="product-msg"></span></div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <header><h3>Catalog</h3><div class="spacer"></div>
+        <label style="display:inline-flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0">
+          <input type="checkbox" id="show-inactive" style="width:auto"> Show inactive</label></header>
+      <div class="table-wrap"><table id="table-products"></table></div>
+    </div>
+  </section>
+
+  <!-- -------------------------------- SALES ------------------------------ -->
+  <section id="view-sales" hidden>
+    <div class="view-head">
+      <div><h2>Sales</h2><p>Enter units sold for a date. Re-entering the same SKU and date replaces that figure rather than adding to it.</p></div>
+      <div class="spacer"></div>
+      <button class="btn secondary" id="export-sales">Download all sales CSV</button>
+    </div>
+
+    <div class="panel">
+      <header><h3>Record sales</h3></header>
+      <form id="sales-form">
+        <div class="field-row">
+          <div class="field"><label for="s-sku">SKU *</label><select id="s-sku" required></select></div>
+          <div class="field"><label for="s-date">Date *</label><input id="s-date" type="date" required></div>
+          <div class="field"><label for="s-units">Units sold *</label><input id="s-units" type="number" step="0.01" required></div>
+          <div class="field"><label for="s-price">Unit price</label><input id="s-price" type="number" step="0.01" min="0"></div>
+        </div>
+        <div class="btn-row"><button class="btn" type="submit">Add entry</button>
+          <button class="btn secondary" type="button" id="s-add-row">Add &amp; keep date</button>
+          <span class="panel-note" id="sales-msg"></span></div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <header><h3>Recent entries</h3><div class="spacer"></div>
+        <div style="min-width:200px"><label for="s-filter-sku">Filter by SKU</label><select id="s-filter-sku"></select></div></header>
+      <div class="table-wrap"><table id="table-sales"></table></div>
+    </div>
+  </section>
+
+  <!-- -------------------------------- IMPORT ----------------------------- -->
+  <section id="view-import" hidden>
+    <div class="view-head">
+      <div><h2>Import sales from a spreadsheet</h2>
+        <p>Drop in a CSV export. Nothing is written until you review the mapping and confirm.</p></div>
+    </div>
+
+    <div class="panel">
+      <header><h3>1 · Choose a file</h3></header>
+      <div class="field"><label for="csv-file">CSV or TSV file</label><input type="file" id="csv-file" accept=".csv,.tsv,.txt,text/csv"></div>
+      <div class="field"><label for="csv-text">…or paste rows</label>
+        <textarea id="csv-text" placeholder="date,sku,units,unit_price&#10;2026-08-03,WID-1,42,12.00"></textarea></div>
+      <div class="btn-row"><button class="btn" id="btn-preview">Analyze file</button></div>
+    </div>
+
+    <div class="panel" id="mapping-panel" hidden>
+      <header><h3>2 · Confirm the column mapping</h3><div class="spacer"></div>
+        <span class="panel-note" id="preview-summary"></span></header>
+      <div class="field-row">
+        <div class="field"><label for="map-date">Date column *</label><select id="map-date"></select></div>
+        <div class="field"><label for="map-sku">SKU column *</label><select id="map-sku"></select></div>
+        <div class="field"><label for="map-units">Units column *</label><select id="map-units"></select></div>
+        <div class="field"><label for="map-price">Unit price column</label><select id="map-price"></select></div>
+      </div>
+      <div class="msg" id="preview-warnings" hidden></div>
+      <div class="table-wrap"><table id="table-preview"></table></div>
+      <div class="btn-row" style="margin-top:16px">
+        <label style="display:inline-flex;align-items:center;gap:7px;margin:0;text-transform:none;letter-spacing:0">
+          <input type="checkbox" id="create-missing" style="width:auto"> Create products for unknown SKUs</label>
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn secondary" id="btn-remap">Re-analyze</button>
+        <button class="btn" id="btn-commit">Import rows</button>
+      </div>
+    </div>
+
+    <div class="panel" id="import-result" hidden>
+      <header><h3>3 · Result</h3></header>
+      <div id="import-result-body"></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------- SETTINGS ---------------------------- -->
+  <section id="view-settings" hidden>
+    <div class="view-head"><div><h2>Settings</h2><p>Connection details stay in this browser. They are never committed to the repository.</p></div></div>
+
+    <div class="panel">
+      <header><h3>API connection</h3></header>
+      <div class="field"><label for="cfg-url">Worker URL</label>
+        <input id="cfg-url" placeholder="https://inventory-forecast-api.YOUR-SUBDOMAIN.workers.dev" autocomplete="off">
+        <div class="hint">Printed by <span class="mono">npx wrangler deploy</span>. No trailing slash.</div></div>
+      <div class="field"><label for="cfg-token">API token</label>
+        <input id="cfg-token" type="password" autocomplete="off">
+        <div class="hint">The value you set with <span class="mono">npx wrangler secret put API_TOKEN</span>.</div></div>
+      <div class="btn-row"><button class="btn" id="cfg-save">Save &amp; test</button>
+        <button class="btn secondary" id="cfg-clear">Forget</button>
+        <span class="panel-note" id="cfg-msg"></span></div>
+    </div>
+
+    <div class="panel">
+      <header><h3>Forecast model</h3><div class="spacer"></div>
+        <span class="panel-note">Stored server-side and applied to every forecast.</span></header>
+      <div class="field-row">
+        <div class="field"><label for="cfg-lookback">History window (weeks)</label><input id="cfg-lookback" type="number" min="2" max="260">
+          <div class="hint">How far back the fit looks.</div></div>
+        <div class="field"><label for="cfg-halflife">Recency half-life (weeks)</label><input id="cfg-halflife" type="number" min="1" max="104">
+          <div class="hint">A week this old counts half as much as the latest week.</div></div>
+        <div class="field"><label for="cfg-damping">Trend damping</label><input id="cfg-damping" type="number" min="0" max="1" step="0.05">
+          <div class="hint">1 extrapolates the slope straight out; 0.85 flattens it over the horizon.</div></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="cfg-service">Service level</label>
+          <select id="cfg-service">
+            <option value="0.9">90% — leaner stock, more stockouts</option>
+            <option value="0.95">95% — balanced</option>
+            <option value="0.98">98% — safer</option>
+            <option value="0.99">99% — rarely out of stock</option>
+          </select>
+          <div class="hint">Sets the safety-stock multiplier.</div></div>
+        <div class="field"><label for="cfg-review">Order review period (weeks)</label><input id="cfg-review" type="number" min="1" max="8">
+          <div class="hint">How often you actually place orders.</div></div>
+        <div class="field"><label for="cfg-trend">Trend</label>
+          <select id="cfg-trend"><option value="true">Use trend</option><option value="false">Flat average only</option></select></div>
+      </div>
+      <div class="btn-row"><button class="btn" id="cfg-save-model">Save model settings</button>
+        <span class="panel-note" id="cfg-model-msg"></span></div>
+    </div>
+
+    <div class="panel">
+      <header><h3>How the numbers are produced</h3></header>
+      <p>Daily sales are rolled into ISO weeks. A weighted least-squares line is fitted through the weekly unit history with exponentially decaying weights, giving a current demand <em>level</em> and a <em>trend</em> in units per week. Future weeks extrapolate that trend with damping, so a steep recent slope does not compound indefinitely.</p>
+      <p>Forecast error is the weighted RMS of the fit residuals. Safety stock is <span class="mono">z × σ × √(lead time + review period)</span>, where z comes from your service level. A week-by-week simulation then depletes stock by forecast demand, receives orders after the lead time, and orders back up to the target level — those orders, priced at unit cost, are the spend projection.</p>
+      <p class="panel-note">Every SKU's row shows which basis it used. A SKU with under three weeks of history gets a flat weighted average with no trend, because a slope fitted to two points is noise.</p>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
