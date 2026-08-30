@@ -1,5 +1,6 @@
 import { json, readJSON } from '../lib/http.js';
 import { buildForecast, DEFAULT_SETTINGS, addWeeks } from '../forecast.js';
+import { API_VERSION } from '../lib/version.js';
 
 const NUMERIC_SETTINGS = ['lookbackWeeks', 'halfLifeWeeks', 'horizonWeeks', 'damping', 'serviceLevel', 'reviewPeriodWeeks', 'minHistoryWeeks'];
 
@@ -44,6 +45,7 @@ export async function getForecast({ env, url }) {
   ]);
 
   const result = buildForecast(products, sales, settings, asOf);
+  result.api_version = API_VERSION;
 
   if (q.get('product_id')) {
     const id = Number(q.get('product_id'));

@@ -418,11 +418,34 @@ async function refreshForecast() {
  * Say why the dashboard is empty. A forecast of all zeros and a forecast that
  * never ran look identical on a chart, so the reason has to be stated.
  */
+/** The API version this page's features require. See api/src/lib/version.js. */
+const REQUIRED_API_VERSION = 3;
+
 function renderDiagnostics(f) {
   const host = $('#diagnostics');
   const d = f.diagnostics;
-  if (!d) { host.innerHTML = ''; return; }
 
+  // The page redeploys itself from GitHub Pages; the Worker does not. If the
+  // API is behind, say so — silently rendering an empty panel is how the last
+  // three problems stayed invisible.
+  if (!(f.api_version >= REQUIRED_API_VERSION)) {
+    host.innerHTML = `<div class="msg error"><b>Your API is running an older version than this page.</b><br>
+      This page needs API version ${REQUIRED_API_VERSION}; the Worker reported ${f.api_version ? `version ${f.api_version}` : 'no version, so it predates version 2'}.
+      Diagnostics and spend figures may be missing or wrong until you redeploy it:
+      run <span class="mono">npm run deploy</span> in the <span class="mono">api</span> folder, then reload this page.</div>`;
+    if (!d) return;
+    host.innerHTML += diagnosticBlocks(f).map(([kind, title, body]) =>
+      `<div class="msg ${kind === 'error' ? 'error' : ''}"><b>${esc(title)}</b><br>${esc(body)}</div>`).join('');
+    return;
+  }
+
+  host.innerHTML = diagnosticBlocks(f).map(([kind, title, body]) =>
+    `<div class="msg ${kind === 'error' ? 'error' : ''}"><b>${esc(title)}</b><br>${esc(body)}</div>`).join('');
+}
+
+function diagnosticBlocks(f) {
+  const d = f.diagnostics;
+  if (!d) return [];
   const blocks = [];
 
   if (d.active_products === 0) {
@@ -465,8 +488,7 @@ function renderDiagnostics(f) {
       `${d.thin_history.slice(0, 8).join(', ')}. These use a flat weighted average until they have ${f.settings.minHistoryWeeks}+ weeks.`]);
   }
 
-  host.innerHTML = blocks.map(([kind, title, body]) =>
-    `<div class="msg ${kind === 'error' ? 'error' : ''}"><b>${esc(title)}</b><br>${esc(body)}</div>`).join('');
+  return blocks;
 }
 
 function renderForecast(f) {

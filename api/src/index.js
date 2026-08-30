@@ -11,11 +11,12 @@ import { Router, json, error, corsHeaders, authorize, HttpError } from './lib/ht
 import * as products from './routes/products.js';
 import * as sales from './routes/sales.js';
 import * as forecast from './routes/forecast.js';
+import { API_VERSION } from './lib/version.js';
 
 const router = new Router()
   .get('/api/health', async ({ env }) => {
     const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM products').first();
-    return json({ ok: true, products: row?.n ?? 0, time: new Date().toISOString() });
+    return json({ ok: true, api_version: API_VERSION, products: row?.n ?? 0, time: new Date().toISOString() });
   })
 
   .get('/api/products', products.listProducts)
