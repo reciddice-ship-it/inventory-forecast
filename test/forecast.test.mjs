@@ -266,3 +266,109 @@ test('wow_change_pct reports the 4-week trend correctly', () => {
   );
   assert.equal(out.items[0].wow_change_pct, 50);
 });
+
+/* --------------------- diagnostics / failure modes ------------------ */
+
+test('sales entirely before the history window report stale-history, not zero demand', () => {
+  const rows = Array.from({ length: 26 }, (_, i) => ({ sale_date: addWeeks('2025-06-30', i), units: 100, product_id: 1 }));
+  const out = buildForecast(
+    [{ id: 1, sku: 'OLD', name: 'Old', unit_cost: 5, lead_time_days: 14, on_hand: 0, active: 1 }],
+    rows, { lookbackWeeks: 26, horizonWeeks: 13 }, '2026-08-30'
+  );
+  const it = out.items[0];
+  assert.equal(it.basis, 'stale-history', 'must not claim it fitted a trend');
+  assert.equal(it.coverage.sales_rows, 26);
+  assert.equal(it.coverage.units_in_window, 0);
+  assert.ok(it.coverage.last_sale_week < it.coverage.window_start);
+  assert.ok(it.issues.some((x) => x.code === 'stale-sales'));
+  assert.deepEqual(out.diagnostics.stale_sales.map((s) => s.sku), ['OLD']);
+  assert.equal(out.diagnostics.products_with_usable_history, 0);
+});
+
+test('widening the history window rescues stale data', () => {
+  const rows = Array.from({ length: 26 }, (_, i) => ({ sale_date: addWeeks('2025-06-30', i), units: 100, product_id: 1 }));
+  const p = [{ id: 1, sku: 'OLD', name: 'Old', unit_cost: 5, lead_time_days: 14, on_hand: 0, active: 1 }];
+  const narrow = buildForecast(p, rows, { lookbackWeeks: 26 }, '2026-08-30');
+  const wide = buildForecast(p, rows, { lookbackWeeks: 104 }, '2026-08-30');
+  assert.equal(narrow.items[0].basis, 'stale-history');
+  assert.equal(wide.items[0].coverage.units_in_window, 2600);
+  assert.ok(wide.items[0].level_units_per_week >= 0);
+});
+
+test('no sales at all is reported separately from stale sales', () => {
+  const out = buildForecast(
+    [{ id: 1, sku: 'NEW', name: 'New', unit_cost: 5, lead_time_days: 7, on_hand: 0, active: 1 }],
+    [], {}, '2026-08-30'
+  );
+  assert.equal(out.items[0].basis, 'no-history');
+  assert.equal(out.items[0].coverage.sales_rows, 0);
+  assert.deepEqual(out.diagnostics.no_sales, ['NEW']);
+  assert.equal(out.diagnostics.stale_sales.length, 0);
+});
+
+test('monthly-total rows are flagged as sparse rather than silently under-forecast', () => {
+  const rows = ['2026-03-02', '2026-04-06', '2026-05-04', '2026-06-01', '2026-07-06', '2026-08-03']
+    .map((d) => ({ sale_date: d, units: 400, product_id: 1 }));
+  const out = buildForecast(
+    [{ id: 1, sku: 'MON', name: 'Monthly totals', unit_cost: 2, lead_time_days: 7, on_hand: 0, active: 1 }],
+    rows, { lookbackWeeks: 26, horizonWeeks: 8 }, '2026-08-30'
+  );
+  const it = out.items[0];
+  assert.ok(it.coverage.weeks_with_sales < it.coverage.history_weeks / 2);
+  assert.ok(it.issues.some((x) => x.code === 'sparse-history'));
+  assert.deepEqual(out.diagnostics.sparse_history, ['MON']);
+});
+
+test('zero unit cost is flagged and does not suppress the unit forecast', () => {
+  // History must run right up to the window end, or trailing empty weeks
+  // legitimately drag demand toward zero (covered by its own test below).
+  const rows = Array.from({ length: 12 }, (_, i) => ({ sale_date: addWeeks('2026-06-01', i), units: 50, product_id: 1 }));
+  const out = buildForecast(
+    [{ id: 1, sku: 'FREE', name: 'No cost set', unit_cost: 0, lead_time_days: 7, on_hand: 0, active: 1 }],
+    rows, { horizonWeeks: 6 }, '2026-08-30'
+  );
+  assert.deepEqual(out.diagnostics.zero_cost, ['FREE']);
+  assert.equal(out.total_spend, 0);
+  assert.ok(out.weekly_demand_units.every((v) => v > 0), 'units must still be forecast');
+});
+
+test('a healthy SKU raises no issues', () => {
+  const rows = Array.from({ length: 20 }, (_, i) => ({ sale_date: addWeeks('2026-04-06', i), units: 80, product_id: 1 }));
+  const out = buildForecast(
+    [{ id: 1, sku: 'OK', name: 'Fine', unit_cost: 3, lead_time_days: 14, on_hand: 100, active: 1 }],
+    rows, { horizonWeeks: 13 }, '2026-08-30'
+  );
+  assert.deepEqual(out.items[0].issues, []);
+  assert.equal(out.diagnostics.products_with_usable_history, 1);
+  assert.ok(out.total_spend > 0);
+});
+
+test('trailing empty weeks are flagged, because they silently pull demand to zero', () => {
+  // Sales stop 6 weeks before the window ends — a very common shape when a
+  // CSV export is a few weeks stale.
+  const rows = Array.from({ length: 12 }, (_, i) => ({ sale_date: addWeeks('2026-05-04', i), units: 50, product_id: 1 }));
+  const out = buildForecast(
+    [{ id: 1, sku: 'GAP', name: 'Stale export', unit_cost: 4, lead_time_days: 7, on_hand: 0, active: 1 }],
+    rows, { horizonWeeks: 8 }, '2026-08-30'
+  );
+  const it = out.items[0];
+  assert.equal(it.coverage.last_sale_week, '2026-07-20');
+  assert.ok(it.coverage.stale_weeks >= 2, `stale weeks: ${it.coverage.stale_weeks}`);
+  assert.ok(it.issues.some((x) => x.code === 'trailing-gap'));
+  assert.equal(out.diagnostics.trailing_gap[0].sku, 'GAP');
+  // The forecast really has collapsed — the point is that the UI now says why.
+  assert.ok(it.level_units_per_week < 25, `level should be depressed, got ${it.level_units_per_week}`);
+});
+
+test('history running to the window end raises no trailing-gap issue', () => {
+  // 15 weeks from 2026-05-11 lands the final week on 2026-08-17, the last
+  // complete week before asOf.
+  const rows = Array.from({ length: 15 }, (_, i) => ({ sale_date: addWeeks('2026-05-11', i), units: 50, product_id: 1 }));
+  const out = buildForecast(
+    [{ id: 1, sku: 'OK2', name: 'Current', unit_cost: 4, lead_time_days: 7, on_hand: 0, active: 1 }],
+    rows, { horizonWeeks: 8 }, '2026-08-30'
+  );
+  assert.equal(out.items[0].coverage.stale_weeks, 0);
+  assert.deepEqual(out.diagnostics.trailing_gap, []);
+  assert.ok(Math.abs(out.items[0].level_units_per_week - 50) < 1);
+});

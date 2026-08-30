@@ -66,9 +66,15 @@ export function weeksBetween(aStr, bStr) {
  * starts at the later of (asOfWeek - lookbackWeeks + 1) and the product's first
  * observed sale week.
  *
+ * Also reports coverage, so callers can tell the difference between "demand is
+ * genuinely zero" and "your data never reached this window" — the two look
+ * identical in the numbers and mean completely different things.
+ *
  * @param {{sale_date:string, units:number}[]} rows
  * @param {{asOf?:string, lookbackWeeks?:number}} opts
- * @returns {{weeks:string[], units:number[], revenue:number[], firstSaleWeek:string|null}}
+ * @returns {{weeks:string[], units:number[], revenue:number[], firstSaleWeek:string|null,
+ *            lastSaleWeek:string|null, rowCount:number, unitsInWindow:number,
+ *            weeksWithSales:number, staleWeeks:number, windowStart:string, windowEnd:string}}
  */
 export function aggregateWeekly(rows, opts = {}) {
   const lookbackWeeks = opts.lookbackWeeks ?? 26;
@@ -94,22 +100,42 @@ export function aggregateWeekly(rows, opts = {}) {
   const asOfWeek = weekStart(opts.asOf ?? new Date());
   const endWeek = opts.includeCurrentWeek ? asOfWeek : addWeeks(asOfWeek, -1);
 
-  if (!firstSaleWeek) return { weeks: [], units: [], revenue: [], firstSaleWeek: null };
+  let windowStart = addWeeks(endWeek, -(lookbackWeeks - 1));
 
-  let startWeek = addWeeks(endWeek, -(lookbackWeeks - 1));
+  const base = {
+    weeks: [], units: [], revenue: [],
+    firstSaleWeek, lastSaleWeek,
+    rowCount: rows.length,
+    unitsInWindow: 0,
+    weeksWithSales: 0,
+    staleWeeks: lastSaleWeek ? Math.max(0, weeksBetween(lastSaleWeek, endWeek)) : 0,
+    windowStart, windowEnd: endWeek,
+  };
+
+  if (!firstSaleWeek) return base;
+
+  // Every sale predates the window: the series would be all zeros, which the
+  // model cannot distinguish from "sells nothing". Report it instead.
+  if (lastSaleWeek < windowStart) return base;
+
+  let startWeek = windowStart;
   if (firstSaleWeek > startWeek) startWeek = firstSaleWeek;
-  if (startWeek > endWeek) return { weeks: [], units: [], revenue: [], firstSaleWeek };
+  if (startWeek > endWeek) return base;
 
   const weeks = [];
   const units = [];
   const revenue = [];
+  let unitsInWindow = 0;
+  let weeksWithSales = 0;
   for (let w = startWeek; w <= endWeek; w = addWeeks(w, 1)) {
     const cell = byWeek.get(w) || { units: 0, revenue: 0 };
     weeks.push(w);
     units.push(cell.units);
     revenue.push(cell.revenue);
+    unitsInWindow += cell.units;
+    if (cell.units !== 0) weeksWithSales++;
   }
-  return { weeks, units, revenue, firstSaleWeek };
+  return { ...base, weeks, units, revenue, unitsInWindow, weeksWithSales };
 }
 
 /* ------------------------------------------------------------------ */
@@ -204,9 +230,12 @@ export function forecastDemand(salesRows, settings = {}, asOf) {
   for (let h = 0; h < s.horizonWeeks; h++) weeks.push(addWeeks(startWeek, h));
 
   if (n === 0) {
+    // Distinguish "never sold anything" from "sold, but all of it predates the
+    // history window" — identical zeros, completely different fixes.
+    const basis = hist.rowCount > 0 ? 'stale-history' : 'no-history';
     return {
       weeks, demand: weeks.map(() => 0), level: 0, trend: 0, sigma: 0,
-      history: hist, basis: 'no-history',
+      history: hist, basis,
     };
   }
 
@@ -389,7 +418,51 @@ export function buildForecast(products, sales, settings = {}, asOf) {
     const last4 = histUnits.slice(-4).reduce((a, b) => a + b, 0);
     const prev4 = histUnits.slice(-8, -4).reduce((a, b) => a + b, 0);
 
+    // Why a SKU might be producing nothing useful. Silence here is the failure
+    // mode that matters: zeros with no explanation look like a broken tool.
+    const h = fc.history;
+    const issues = [];
+    if (fc.basis === 'no-history') {
+      issues.push({ code: 'no-sales', message: 'No sales recorded for this SKU.' });
+    } else if (fc.basis === 'stale-history') {
+      issues.push({
+        code: 'stale-sales',
+        message: `Last sale was the week of ${h.lastSaleWeek}, ${h.staleWeeks} weeks before the ${s.lookbackWeeks}-week history window starting ${h.windowStart}. Widen the history window in Settings, or check that the import dates are what you expect.`,
+      });
+    } else {
+      if (h.weeks.length < s.minHistoryWeeks) {
+        issues.push({ code: 'thin-history', message: `Only ${h.weeks.length} week(s) of history — using a flat average, no trend.` });
+      }
+      if (h.staleWeeks >= 2) {
+        issues.push({
+          code: 'trailing-gap',
+          message: `No sales recorded since the week of ${h.lastSaleWeek} — ${h.staleWeeks} empty weeks at the end of the history. Those are being read as zero demand and are pulling the forecast down. If it is a data gap rather than a genuine stop, load the missing weeks.`,
+        });
+      }
+      if (h.weeks.length >= 4 && h.weeksWithSales / h.weeks.length < 0.5) {
+        issues.push({
+          code: 'sparse-history',
+          message: `Sales land in only ${h.weeksWithSales} of ${h.weeks.length} weeks. If your file holds weekly or monthly totals rather than one row per day, the empty weeks between them are being read as zero demand and the forecast will run low.`,
+        });
+      }
+    }
+    if (!(Number(p.unit_cost) > 0)) {
+      issues.push({ code: 'zero-cost', message: 'Unit cost is 0, so this SKU contributes nothing to the spend forecast. Set it on the Products tab.' });
+    }
+
     items.push({
+      issues,
+      coverage: {
+        history_weeks: h.weeks.length,
+        weeks_with_sales: h.weeksWithSales,
+        units_in_window: round2(h.unitsInWindow),
+        first_sale_week: h.firstSaleWeek,
+        last_sale_week: h.lastSaleWeek,
+        stale_weeks: h.staleWeeks,
+        window_start: h.windowStart,
+        window_end: h.windowEnd,
+        sales_rows: h.rowCount,
+      },
       product_id: p.id,
       sku: p.sku,
       name: p.name,
@@ -430,10 +503,27 @@ export function buildForecast(products, sales, settings = {}, asOf) {
       return sum + (idx >= 0 ? it.demand[idx] : 0);
     }, 0)));
 
+  // Portfolio-level diagnostics: if the dashboard is going to show zeros, it
+  // should say why rather than leaving the user to guess.
+  const codeOf = (c) => items.filter((i) => i.issues.some((x) => x.code === c));
+  const diagnostics = {
+    active_products: items.length,
+    products_with_usable_history: items.filter((i) => i.basis !== 'no-history' && i.basis !== 'stale-history').length,
+    no_sales: codeOf('no-sales').map((i) => i.sku),
+    stale_sales: codeOf('stale-sales').map((i) => ({ sku: i.sku, last_sale_week: i.coverage.last_sale_week })),
+    sparse_history: codeOf('sparse-history').map((i) => i.sku),
+    trailing_gap: codeOf('trailing-gap').map((i) => ({ sku: i.sku, last_sale_week: i.coverage.last_sale_week, weeks: i.coverage.stale_weeks })),
+    thin_history: codeOf('thin-history').map((i) => i.sku),
+    zero_cost: codeOf('zero-cost').map((i) => i.sku),
+    window_start: items[0]?.coverage.window_start ?? null,
+    window_end: items[0]?.coverage.window_end ?? null,
+  };
+
   return {
     generated_at: new Date().toISOString(),
     as_of_week: weeksAxis[0] ? addWeeks(weeksAxis[0], -1) : null,
     settings: s,
+    diagnostics,
     weeks: weeksAxis,
     weekly_spend: weeklySpend,
     weekly_demand_units: weeklyUnits,

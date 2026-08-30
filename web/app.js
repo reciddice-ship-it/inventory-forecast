@@ -402,7 +402,63 @@ async function refreshForecast() {
   } catch (e) { fail(e); }
 }
 
+/**
+ * Say why the dashboard is empty. A forecast of all zeros and a forecast that
+ * never ran look identical on a chart, so the reason has to be stated.
+ */
+function renderDiagnostics(f) {
+  const host = $('#diagnostics');
+  const d = f.diagnostics;
+  if (!d) { host.innerHTML = ''; return; }
+
+  const blocks = [];
+
+  if (d.active_products === 0) {
+    blocks.push(['error', 'No active products.',
+      'Add products on the Products tab, or import a sales file with "Create products for unknown SKUs" ticked.']);
+  } else if (d.products_with_usable_history === 0) {
+    blocks.push(['error', `None of your ${d.active_products} active SKUs have sales inside the history window.`,
+      `The model reads sales from ${d.window_start} to ${d.window_end}. Nothing in your data falls in that range, so every forecast is zero.`]);
+  }
+
+  if (d.stale_sales.length) {
+    const list = d.stale_sales.slice(0, 6).map((s) => `${s.sku} (last sale ${s.last_sale_week})`).join(', ');
+    blocks.push(['error', `${d.stale_sales.length} SKU(s) have sales only from before ${d.window_start}.`,
+      `${list}${d.stale_sales.length > 6 ? '…' : ''}. Either the history window is too short for this data — raise it in Settings — or the dates imported differently than you expected. Check the Sales tab.`]);
+  }
+
+  if (d.trailing_gap?.length) {
+    const list = d.trailing_gap.slice(0, 6).map((s) => `${s.sku} (${s.weeks} wks since ${s.last_sale_week})`).join(', ');
+    blocks.push(['error', `${d.trailing_gap.length} SKU(s) have no sales in their most recent weeks.`,
+      `${list}${d.trailing_gap.length > 6 ? '…' : ''}. Empty trailing weeks count as zero demand and pull the forecast toward zero — which is right if sales genuinely stopped, and wrong if your file simply ends earlier than today. The model reads history through ${d.window_end}.`]);
+  }
+
+  if (d.sparse_history.length) {
+    blocks.push(['warn', `${d.sparse_history.length} SKU(s) sell in fewer than half the weeks on record.`,
+      `${d.sparse_history.slice(0, 8).join(', ')}. If your file holds weekly or monthly totals rather than one row per day, the gaps between them are being read as weeks of zero demand and the forecast will run low.`]);
+  }
+
+  if (d.zero_cost.length) {
+    blocks.push(['warn', `${d.zero_cost.length} SKU(s) have a unit cost of 0.`,
+      `${d.zero_cost.slice(0, 8).join(', ')}. Units are forecast normally, but these contribute nothing to any dollar figure. Set unit cost on the Products tab.`]);
+  }
+
+  if (d.no_sales.length) {
+    blocks.push(['warn', `${d.no_sales.length} active SKU(s) have no sales at all.`,
+      d.no_sales.slice(0, 8).join(', ') + '.']);
+  }
+
+  if (d.thin_history.length) {
+    blocks.push(['warn', `${d.thin_history.length} SKU(s) have too little history for a trend.`,
+      `${d.thin_history.slice(0, 8).join(', ')}. These use a flat weighted average until they have ${f.settings.minHistoryWeeks}+ weeks.`]);
+  }
+
+  host.innerHTML = blocks.map(([kind, title, body]) =>
+    `<div class="msg ${kind === 'error' ? 'error' : ''}"><b>${esc(title)}</b><br>${esc(body)}</div>`).join('');
+}
+
 function renderForecast(f) {
+  renderDiagnostics(f);
   const horizonWeeks = f.weeks.length;
   const first4 = f.weekly_spend.slice(0, 4).reduce((a, b) => a + b, 0);
   const atRisk = f.items.filter((i) => i.stockout_weeks.length).length;
@@ -488,7 +544,12 @@ function coverCell(i) {
 }
 
 function basisLabel(b) {
-  return { 'wls-damped-trend': 'trend', 'weighted-mean': 'flat avg (thin history)', 'no-history': 'no history' }[b] || b;
+  return {
+    'wls-damped-trend': 'trend',
+    'weighted-mean': 'flat avg (thin history)',
+    'no-history': 'no sales',
+    'stale-history': 'sales predate window',
+  }[b] || b;
 }
 
 function renderSkuPicker(items) {

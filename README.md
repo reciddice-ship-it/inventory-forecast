@@ -189,6 +189,23 @@ case pack and floored at the MOQ. Those orders × unit cost are the spend
 forecast; weekly figures split across calendar months by day count for the
 monthly view.
 
+### When the forecast comes back empty
+
+A forecast of all zeros and a forecast that never ran look identical on a chart,
+so the dashboard states the reason at the top instead of leaving you to guess.
+The five it detects:
+
+| What you see | What it means | Fix |
+|---|---|---|
+| *Sales only from before a date* | Every sale for that SKU predates the history window. The model reads the last N weeks only; older data is invisible to it. | Raise **History window** in Settings, or check the dates actually imported. |
+| *No sales in their most recent weeks* | The history ends before today, and the empty trailing weeks read as real zero demand, dragging the level down hard. | Load the missing weeks. If sales genuinely stopped, the low forecast is correct. |
+| *Sells in fewer than half the weeks on record* | Usually a file holding weekly or monthly totals rather than one row per day. The gaps between totals count as zero-demand weeks. | Import daily rows, or spread each period total across its weeks first. |
+| *Unit cost of 0* | Units forecast normally, but the SKU contributes nothing to any dollar figure. | Set unit cost on the Products tab. |
+| *No sales at all* | The SKU exists but no sales matched it — often a SKU mismatch between catalog and import file. | Check the SKU spelling in both places. |
+
+The per-SKU table's **Basis** column carries the same information one row at a
+time: `trend`, `flat avg (thin history)`, `sales predate window`, or `no sales`.
+
 ### Things worth knowing
 
 - Spend is dated to the week the order is **placed**, not when it arrives — it's a cash-commitment view. The purchasing table shows both dates.
