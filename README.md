@@ -59,8 +59,7 @@ npx wrangler login          # opens a browser to authorise
 npx wrangler d1 create inventory-forecast
 ```
 
-That prints a `database_id`. Paste it into `api/wrangler.toml`, replacing
-`REPLACE_WITH_YOUR_D1_DATABASE_ID`. Then create the tables:
+The `database_id` is already filled in for this account. Create the tables:
 
 ```bash
 npm run db:migrate
@@ -88,13 +87,13 @@ npm run deploy
 ```
 
 Wrangler prints a URL like
-`https://inventory-forecast-api.YOUR-SUBDOMAIN.workers.dev`. Save it.
+`https://inventory-forecast-api.<your-subdomain>.workers.dev`. Save it.
 
 Check it:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://inventory-forecast-api.YOUR-SUBDOMAIN.workers.dev/api/health
+  https://inventory-forecast-api.<your-subdomain>.workers.dev/api/health
 ```
 
 ### 5. Turn on GitHub Pages
@@ -103,17 +102,10 @@ In your repo: **Settings → Pages → Build and deployment → Source = GitHub
 Actions**. Push to `main` and the included workflow publishes `web/` to
 `https://reciddice-ship-it.github.io/inventory-forecast/`.
 
-### 6. Lock the API to your Pages origin
+### 6. Origin lock
 
-Edit `api/wrangler.toml`:
-
-```toml
-[vars]
-ALLOWED_ORIGINS = "https://reciddice-ship-it.github.io"
-```
-
-Then `npm run deploy` again. Leaving it as `*` means any website can *attempt*
-calls — they still need your token, but there is no reason to allow it.
+`ALLOWED_ORIGINS` in `api/wrangler.toml` is already set to the Pages origin plus
+localhost for development. Change it there and redeploy if the UI ever moves.
 
 ### 7. Connect the UI
 

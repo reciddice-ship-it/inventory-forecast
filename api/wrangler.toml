@@ -6,14 +6,13 @@ compatibility_date = "2025-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "inventory-forecast"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "9446b78e-5435-4256-aebf-b2e6c1771a37"
 
 [vars]
 # Comma-separated list of origins allowed to call this API.
-# Set this to your GitHub Pages URL once you know it, e.g.
-#   ALLOWED_ORIGINS = "https://YOUR_USERNAME.github.io"
-# "*" is fine while you're testing locally.
-ALLOWED_ORIGINS = "*"
+# The GitHub Pages origin is the live UI; the localhost entries let a locally
+# served copy of web/ talk to `wrangler dev`. Drop them if you never run it local.
+ALLOWED_ORIGINS = "https://reciddice-ship-it.github.io,http://127.0.0.1:8080,http://localhost:8080"
 
 # API_TOKEN is a SECRET, not a var. Never put it in this file.
 # Set it with:  npx wrangler secret put API_TOKEN
